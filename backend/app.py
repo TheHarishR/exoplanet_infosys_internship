@@ -12,6 +12,10 @@ import numpy as np
 import os
 import json
 
+
+# Get port from environment variable (Render provides this)
+PORT = int(os.environ.get('PORT', 5000))
+
 app = Flask(__name__)
 CORS(app)
 
@@ -105,81 +109,158 @@ if feature_names is None:
     ]
     print(f"⚠️  Using default feature names: {len(feature_names)} features")
 
-# In-memory database for planets
+# In-memory database for planets (starts empty)
 planets_db = []
 
-# Flag file to prevent duplicate loading
-DATA_LOADED_FLAG = 'data_loaded.flag'
+# ============================================================
+# PERSISTENT DATABASE (SQLite) - ADDED FOR PERMANENT STORAGE
+# ============================================================
 
-FEATURE_LABELS = {
-    'st_teff': 'Stellar Temperature',
-    'st_rad': 'Stellar Radius',
-    'st_mass': 'Stellar Mass',
-    'st_met': 'Stellar Metallicity',
-    'st_luminosity': 'Stellar Luminosity',
-    'pl_orbper': 'Orbital Period',
-    'pl_orbeccen': 'Orbital Eccentricity',
-    'pl_insol': 'Insolation Flux'
-}
+DATABASE_FILE = 'exoplanet_database.db'
 
-HABITABILITY_THRESHOLD = 0.5
+def init_database():
+    """Initialize SQLite database for permanent storage"""
+    import sqlite3
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS planets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            planet_name TEXT UNIQUE NOT NULL,
+            st_teff REAL NOT NULL,
+            st_rad REAL NOT NULL,
+            st_mass REAL NOT NULL,
+            st_met REAL NOT NULL,
+            st_luminosity REAL NOT NULL,
+            pl_orbper REAL NOT NULL,
+            pl_orbeccen REAL NOT NULL,
+            pl_insol REAL NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print(f"✅ Database initialized: {DATABASE_FILE}")
 
+def get_all_planets_from_db():
+    """Get all planets from SQLite database"""
+    import sqlite3
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM planets')
+    rows = cursor.fetchall()
+    
+    planets = []
+    for row in rows:
+        planet = {
+            'planet_name': row['planet_name'],
+            'st_teff': row['st_teff'],
+            'st_rad': row['st_rad'],
+            'st_mass': row['st_mass'],
+            'st_met': row['st_met'],
+            'st_luminosity': row['st_luminosity'],
+            'pl_orbper': row['pl_orbper'],
+            'pl_orbeccen': row['pl_orbeccen'],
+            'pl_insol': row['pl_insol']
+        }
+        planets.append(planet)
+    
+    conn.close()
+    return planets
+
+def add_planet_to_db(planet_data):
+    """Add planet to SQLite database"""
+    import sqlite3
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            INSERT INTO planets (planet_name, st_teff, st_rad, st_mass, st_met, 
+                               st_luminosity, pl_orbper, pl_orbeccen, pl_insol)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            planet_data['planet_name'],
+            float(planet_data['st_teff']),
+            float(planet_data['st_rad']),
+            float(planet_data['st_mass']),
+            float(planet_data['st_met']),
+            float(planet_data['st_luminosity']),
+            float(planet_data['pl_orbper']),
+            float(planet_data['pl_orbeccen']),
+            float(planet_data['pl_insol'])
+        ))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False  # Duplicate planet name
+
+def get_planet_count_from_db():
+    """Get total number of planets in database"""
+    import sqlite3
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM planets')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+# Initialize database on startup
+init_database()
 
 # ============================================================
-# LOAD INITIAL DATASET - ONE TIME ONLY
+# ONE-TIME CSV LOADING INTO DATABASE
 # ============================================================
+
+CSV_LOADED_FLAG = 'csv_data_loaded.flag'
 
 def calculate_luminosity(st_rad, st_teff):
-    """
-    Calculate stellar luminosity using Stefan-Boltzmann law
-    L = 4π R² σ T⁴ (in solar units)
-    L/L_sun = (R/R_sun)² × (T/T_sun)⁴
-    """
+    """Calculate stellar luminosity using Stefan-Boltzmann law"""
     if pd.notna(st_rad) and pd.notna(st_teff) and st_rad > 0 and st_teff > 0:
         T_sun = 5778  # Solar temperature in Kelvin
         return (st_rad ** 2) * ((st_teff / T_sun) ** 4)
     return None
 
-
-def load_initial_data():
-    """
-    Load planets from exo_cleaned.csv (ONE TIME ONLY)
-    FIXED: Calculates st_luminosity from st_rad and st_teff since it's not in CSV
-    Uses flag file to prevent reloading
-    """
-    global planets_db
+def load_csv_to_database():
+    """Load exo_cleaned.csv into database ONE TIME ONLY"""
     
-    # Check if data has already been loaded
-    if os.path.exists(DATA_LOADED_FLAG):
+    # Check if CSV has already been loaded
+    if os.path.exists(CSV_LOADED_FLAG):
         try:
-            with open(DATA_LOADED_FLAG, 'r') as f:
+            with open(CSV_LOADED_FLAG, 'r') as f:
+                import json
                 flag_data = json.load(f)
-                print(f"✅ Data already loaded previously ({flag_data['count']} planets)")
+                print(f"✅ CSV already loaded previously ({flag_data['count']} planets)")
                 print(f"   Loaded on: {flag_data['timestamp']}")
-                print(f"   Source: {flag_data['source']}")
                 return
         except:
-            print("⚠️  Flag file corrupted, reloading data...")
-            os.remove(DATA_LOADED_FLAG)
+            print("⚠️  Flag file corrupted, reloading CSV...")
+            os.remove(CSV_LOADED_FLAG)
     
-    # Try to load from exo_cleaned.csv
+    # Try to find and load CSV
     csv_paths = [
         'data/exo_cleaned.csv',
         'exo_cleaned.csv',
         '../data/exo_cleaned.csv',
-        'data\\exo_cleaned.csv',  # Windows path
-        '..\\data\\exo_cleaned.csv'  # Windows path
+        'data\\exo_cleaned.csv',
+        '..\\data\\exo_cleaned.csv'
     ]
     
     for csv_path in csv_paths:
-        # Normalize path for Windows
         csv_path = os.path.normpath(csv_path)
         
         if os.path.exists(csv_path):
             try:
-                print(f"📂 Loading data from {csv_path}...")
+                print(f"📂 Loading CSV data from {csv_path}...")
                 
-                # FIXED: Use engine='python' to avoid fsspec dependency
+                # Read CSV
                 df = pd.read_csv(csv_path, engine='python')
                 
                 print(f"   Total rows in CSV: {len(df)}")
@@ -188,25 +269,26 @@ def load_initial_data():
                 loaded_count = 0
                 skipped_count = 0
                 
+                import sqlite3
+                conn = sqlite3.connect(DATABASE_FILE)
+                cursor = conn.cursor()
+                
                 for idx, row in df.iterrows():
                     # Get planet name
                     planet_name = str(row['pl_name']) if pd.notna(row.get('pl_name')) else f'Planet-{idx}'
                     
-                    planet_data = {'planet_name': planet_name}
-                    
-                    # Map CSV columns to model features (7 exist in CSV)
+                    # Map CSV columns (7 exist in CSV)
                     csv_to_model_mapping = {
-                        'st_teff': 'st_teff',      # ✅ exists in CSV
-                        'st_rad': 'st_rad',        # ✅ exists in CSV
-                        'st_mass': 'st_mass',      # ✅ exists in CSV
-                        'st_met': 'st_met',        # ✅ exists in CSV
-                        'pl_orbper': 'pl_orbper',  # ✅ exists in CSV
-                        'pl_orbeccen': 'pl_orbeccen',  # ✅ exists in CSV
-                        'pl_insol': 'pl_insol'     # ✅ exists in CSV
-                        # st_luminosity - ❌ NOT in CSV, will calculate
+                        'st_teff': 'st_teff',
+                        'st_rad': 'st_rad',
+                        'st_mass': 'st_mass',
+                        'st_met': 'st_met',
+                        'pl_orbper': 'pl_orbper',
+                        'pl_orbeccen': 'pl_orbeccen',
+                        'pl_insol': 'pl_insol'
                     }
                     
-                    # Extract the 7 features that exist in CSV
+                    # Extract the 7 features from CSV
                     has_all_features = True
                     temp_data = {}
                     
@@ -231,50 +313,91 @@ def load_initial_data():
                         if st_luminosity is not None and st_luminosity > 0:
                             temp_data['st_luminosity'] = st_luminosity
                         else:
-                            # Use default solar luminosity if calculation fails
-                            temp_data['st_luminosity'] = 1.0
+                            temp_data['st_luminosity'] = 1.0  # Default solar luminosity
                         
-                        # Add all 8 features to planet_data
-                        planet_data.update(temp_data)
-                        
-                        planets_db.append(planet_data)
-                        loaded_count += 1
+                        # Insert into database
+                        try:
+                            cursor.execute('''
+                                INSERT INTO planets (planet_name, st_teff, st_rad, st_mass, st_met, 
+                                                   st_luminosity, pl_orbper, pl_orbeccen, pl_insol)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (
+                                planet_name,
+                                temp_data['st_teff'],
+                                temp_data['st_rad'],
+                                temp_data['st_mass'],
+                                temp_data['st_met'],
+                                temp_data['st_luminosity'],
+                                temp_data['pl_orbper'],
+                                temp_data['pl_orbeccen'],
+                                temp_data['pl_insol']
+                            ))
+                            loaded_count += 1
+                        except sqlite3.IntegrityError:
+                            # Duplicate planet name, skip
+                            skipped_count += 1
                     else:
                         skipped_count += 1
                 
+                conn.commit()
+                conn.close()
+                
                 if loaded_count > 0:
-                    print(f"✅ Successfully loaded {loaded_count} planets from {csv_path}")
-                    print(f"   Skipped {skipped_count} rows (missing features)")
+                    print(f"✅ Successfully loaded {loaded_count} planets into database")
+                    print(f"   Skipped {skipped_count} rows (missing features or duplicates)")
                     
-                    # Create flag file to prevent reloading
+                    # Create flag file
                     import datetime
+                    import json
                     flag_data = {
                         'count': loaded_count,
                         'source': csv_path,
-                        'timestamp': datetime.datetime.now().isoformat(),
-                        'features': feature_names
+                        'timestamp': datetime.datetime.now().isoformat()
                     }
                     
-                    with open(DATA_LOADED_FLAG, 'w') as f:
+                    with open(CSV_LOADED_FLAG, 'w') as f:
                         json.dump(flag_data, f, indent=2)
                     
-                    print(f"✅ Created flag file to prevent duplicate loading")
+                    print(f"✅ Created flag file - CSV will not be reloaded")
                     return
                 else:
                     print(f"⚠️  No valid planets found in {csv_path}")
                     
             except Exception as e:
-                print(f"❌ Error loading from {csv_path}: {e}")
+                print(f"❌ Error loading CSV: {e}")
                 import traceback
                 traceback.print_exc()
     
-    print("⚠️  No dataset found - database will be empty")
+    print("⚠️  No CSV file found - database will remain empty")
     print("📋 Searched paths:")
     for path in csv_paths:
         print(f"   - {os.path.normpath(path)}")
 
+# Load CSV data into database on first run
+load_csv_to_database()
 
-load_initial_data()
+FEATURE_LABELS = {
+    'st_teff': 'Stellar Temperature',
+    'st_rad': 'Stellar Radius',
+    'st_mass': 'Stellar Mass',
+    'st_met': 'Stellar Metallicity',
+    'st_luminosity': 'Stellar Luminosity',
+    'pl_orbper': 'Orbital Period',
+    'pl_orbeccen': 'Orbital Eccentricity',
+    'pl_insol': 'Insolation Flux'
+}
+
+HABITABILITY_THRESHOLD = 0.5
+
+
+# ============================================================
+# DATABASE INITIALIZATION
+# ============================================================
+# Database starts empty - planets can be added via:
+# 1. /add_planet endpoint (manual entry)
+# 2. CSV upload through frontend
+# 3. Batch prediction endpoint
+# Note: Previous CSV auto-loading has been removed as requested
 
 
 # ============================================================
@@ -328,7 +451,7 @@ def make_dual_prediction(planet_data):
 
 @app.route('/add_planet', methods=['POST'])
 def add_planet():
-    """Add a new planet to the database"""
+    """Add a new planet to the PERMANENT database"""
     try:
         data = request.json
         
@@ -340,19 +463,20 @@ def add_planet():
                     'message': f'Missing required field: {field}'
                 }), 400
         
-        # Check for duplicate planet names
-        for planet in planets_db:
-            if planet['planet_name'] == data['planet_name']:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Planet "{data["planet_name"]}" already exists in database'
-                }), 400
+        # Add to persistent SQLite database
+        success = add_planet_to_db(data)
         
-        planets_db.append(data)
+        if not success:
+            return jsonify({
+                'status': 'error',
+                'message': f'Planet "{data["planet_name"]}" already exists in database'
+            }), 400
+        
+        print(f"✅ Planet added to database: {data['planet_name']}")
         
         return jsonify({
             'status': 'success',
-            'message': 'Planet added successfully',
+            'message': 'Planet added successfully to permanent database',
             'data': None
         })
     
@@ -398,7 +522,7 @@ def predict():
 
 @app.route('/rank', methods=['GET'])
 def rank_planets():
-    """Get top N planets ranked by habitability score"""
+    """Get top N planets ranked by habitability score from PERMANENT database"""
     try:
         if regressor_model is None:
             return jsonify({
@@ -408,7 +532,10 @@ def rank_planets():
         
         top_n = int(request.args.get('top', 20))
         
-        if len(planets_db) == 0:
+        # Get all planets from persistent database
+        planets = get_all_planets_from_db()
+        
+        if len(planets) == 0:
             print("⚠️  No planets in database for ranking")
             return jsonify({
                 'status': 'success',
@@ -416,10 +543,10 @@ def rank_planets():
                 'data': []
             })
         
-        print(f"📊 Ranking {len(planets_db)} planets...")
+        print(f"📊 Ranking {len(planets)} planets from database...")
         
         ranked_planets = []
-        for planet in planets_db:
+        for planet in planets:
             try:
                 result = make_dual_prediction(planet)
                 ranked_planets.append({
@@ -463,15 +590,15 @@ def rank_planets():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with database info"""
     return jsonify({
         'status': 'healthy',
         'classifier_loaded': classifier_model is not None,
         'regressor_loaded': regressor_model is not None,
         'scaler_loaded': scaler is not None,
-        'total_planets': len(planets_db),
+        'total_planets': get_planet_count_from_db(),
         'habitability_threshold': HABITABILITY_THRESHOLD,
-        'data_loaded_from_file': os.path.exists(DATA_LOADED_FLAG)
+        'database_file': DATABASE_FILE
     })
 
 
@@ -521,7 +648,10 @@ def get_distribution():
                 'message': 'Regression model not loaded'
             }), 500
             
-        if len(planets_db) == 0:
+        # Get planets from database
+        planets = get_all_planets_from_db()
+        
+        if len(planets) == 0:
             return jsonify({
                 'status': 'success',
                 'data': {
@@ -534,7 +664,7 @@ def get_distribution():
             })
         
         scores = []
-        for planet in planets_db:
+        for planet in planets:
             try:
                 result = make_dual_prediction(planet)
                 scores.append(result['score'])
@@ -562,21 +692,24 @@ def get_distribution():
 
 @app.route('/analytics/correlations', methods=['GET'])
 def get_correlations():
-    """Get correlations between features and habitability"""
+    """Get correlations between features and habitability from database"""
     try:
         if regressor_model is None:
             return jsonify({
                 'status': 'error',
                 'message': 'Regression model not loaded'
             }), 500
-            
-        if len(planets_db) < 2:
+        
+        # Get planets from database
+        planets = get_all_planets_from_db()
+        
+        if len(planets) < 2:
             return jsonify({
                 'status': 'success',
                 'data': []
             })
         
-        df = pd.DataFrame(planets_db)
+        df = pd.DataFrame(planets)
         
         scores = []
         for _, planet in df.iterrows():
@@ -616,13 +749,16 @@ def get_correlations():
 def get_parameter_ranges():
     """Get parameter value ranges for all planets in database"""
     try:
-        if len(planets_db) == 0:
+        # Get planets from database
+        planets = get_all_planets_from_db()
+        
+        if len(planets) == 0:
             return jsonify({
                 'status': 'success',
                 'data': []
             })
         
-        df = pd.DataFrame(planets_db)
+        df = pd.DataFrame(planets)
         
         ranges = []
         for feature in feature_names:
@@ -651,16 +787,18 @@ def get_parameter_ranges():
 
 @app.route('/analytics/individual/<planet_name>', methods=['GET'])
 def get_individual_analysis(planet_name):
-    """Get detailed analysis for a specific planet"""
+    """Get detailed analysis for a specific planet from database"""
     try:
         if regressor_model is None:
             return jsonify({
                 'status': 'error',
                 'message': 'Regression model not loaded'
             }), 500
-            
+        
+        # Get planet from database
+        planets = get_all_planets_from_db()
         planet = None
-        for p in planets_db:
+        for p in planets:
             if p['planet_name'] == planet_name:
                 planet = p
                 break
@@ -699,63 +837,22 @@ def get_individual_analysis(planet_name):
 
 
 # ============================================================
-# UTILITY ENDPOINT - Reset Data (for development/testing)
-# ============================================================
-
-@app.route('/reset_data', methods=['POST'])
-def reset_data():
-    """
-    Reset data loading flag (for development/testing only)
-    This allows reloading data from CSV
-    """
-    try:
-        if os.path.exists(DATA_LOADED_FLAG):
-            os.remove(DATA_LOADED_FLAG)
-            return jsonify({
-                'status': 'success',
-                'message': 'Data flag reset. Restart server to reload data.'
-            })
-        else:
-            return jsonify({
-                'status': 'success',
-                'message': 'No flag file found. Data will load on next restart.'
-            })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-
-# ============================================================
 # STARTUP
 # ============================================================
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🌌 EXOPLANET HABITABILITY EXPLORER - COMPLETE")
+    print("🌌 EXOPLANET HABITABILITY EXPLORER - PERSISTENT DATABASE")
     print("="*60)
     print(f"✅ Classifier: {'Loaded' if classifier_model else 'NOT LOADED'}")
     print(f"✅ Regressor: {'Loaded (PRIMARY)' if regressor_model else '❌ NOT LOADED - CRITICAL!'}")
     print(f"✅ Scaler: {'Loaded' if scaler else 'NOT LOADED'}")
     print(f"✅ Features: {len(feature_names)}")
-    print(f"✅ Planets in DB: {len(planets_db)}")
+    print(f"✅ Database: {DATABASE_FILE}")
+    print(f"✅ Planets in DB: {get_planet_count_from_db()}")
     print(f"✅ Habitability Threshold: {HABITABILITY_THRESHOLD * 100}%")
-    print(f"✅ Data Loaded Flag: {'EXISTS' if os.path.exists(DATA_LOADED_FLAG) else 'NOT SET'}")
     print("="*60)
-    
-    if len(planets_db) > 0:
-        print(f"📊 Sample planets loaded:")
-        for i, planet in enumerate(planets_db[:5]):
-            print(f"   {i+1}. {planet['planet_name']}")
-        if len(planets_db) > 5:
-            print(f"   ... and {len(planets_db) - 5} more")
-    else:
-        print("⚠️  No planets loaded from CSV")
-        print("   First install fsspec:")
-        print("   pip install fsspec --break-system-packages")
-        print("   Then restart Flask")
-    
+    print("💾 Data persists across restarts - stored in SQLite!")
     print("="*60)
     
     if regressor_model is None:
@@ -768,4 +865,4 @@ if __name__ == '__main__':
     print("🚀 Server starting on http://127.0.0.1:5000")
     print("="*60 + "\n")
     
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=PORT, debug=False)
