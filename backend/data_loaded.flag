@@ -1,0 +1,15 @@
+{
+  "count": 39119,
+  "source": "data\\exo_cleaned.csv",
+  "timestamp": "2026-01-19T17:50:10.618090",
+  "features": [
+    "st_teff",
+    "st_rad",
+    "st_mass",
+    "st_met",
+    "st_luminosity",
+    "pl_orbper",
+    "pl_orbeccen",
+    "pl_insol"
+  ]
+}
