@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ExoHabitAI</title>
+
+  <!-- MAIN CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+
+<!-- BACKGROUND -->
+<div class="stars"></div>
+
+<!-- NAVBAR -->
+<header class="navbar">
+  <div class="logo">☾ ExoHabitAI</div>
+  <nav>
+    <a href="/predictor">Predictor</a>
+    <a href="/dashboard">Dashboard</a>
+  </nav>
+</header>
+
+<!-- HERO SECTION -->
+<section class="hero">
+  <div class="hero-text">
+    <h1>Discover <span>Habitable Worlds</span><br>Beyond Our Solar System</h1>
+
+    <p>
+      Using advanced machine learning algorithms to analyze exoplanet
+      data and predict habitability potential with high accuracy.
+    </p>
+
+    <div class="hero-buttons">
+      <a href="/predictor" class="btn primary">🚀 Start Prediction</a>
+      <a href="/dashboard" class="btn outline">📊 View Dashboard</a>
+    </div>
+  </div>
+
+  <div class="hero-planet"></div>
+</section>
+
+</body>
+</html>

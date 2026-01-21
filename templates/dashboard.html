@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ExoHabitAI | Dashboard</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="stars"></div>
+
+<header class="navbar">
+  <div class="logo">☾ ExoHabitAI</div>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/predictor">Predictor</a>
+    <a href="/dashboard">Dashboard</a>
+  </nav>
+</header>
+
+<section class="dashboard">
+
+  <h1 class="dashboard-title">Prediction Dashboard</h1>
+<div class="dashboard-divider"></div>
+
+  <!-- METRICS -->
+  <div class="dashboard-metrics">
+    <div class="metric-box">
+      <h2>{{ accuracy }}%</h2>
+      <p>Model Accuracy</p>
+    </div>
+
+    <div class="metric-box">
+      <h2>{{ last_score }}</h2>
+      <p>Latest Habitability Score</p>
+    </div>
+  </div>
+
+  <!-- CHART GRID -->
+  <div class="dashboard-grid">
+
+    <div class="chart-card">
+      <h3>Habitability Trend</h3>
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h3>Prediction Confidence</h3>
+      <canvas id="confidenceChart"></canvas>
+    </div>
+
+  </div>
+
+</section>
+
+
+<!-- ✅ JINJA VARIABLES MUST STAY IN HTML -->
+<script>
+  const predictionData = {{ predictions | tojson }};
+  const lastScore = {{ last_score | tojson }};
+</script>
+
+<!-- ✅ PURE JS FILE -->
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ExoHabitAI | Predictor</title>
+
+  <!-- MAIN CSS (THIS WAS MISSING) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+
+<!-- BACKGROUND -->
+<div class="stars"></div>
+
+<!-- NAVBAR -->
+<header class="navbar">
+  <div class="logo">☾ ExoHabitAI</div>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/predictor">Predictor</a>
+  </nav>
+</header>
+
+<!-- PREDICTOR CARD -->
+<section class="predictor-card">
+
+  <h2>Planetary Parameters</h2>
+
+  <div class="slider-group">
+    <label>Planet Temperature</label>
+    <input type="range" min="-3" max="3" step="0.1" id="planet_temp_z">
+    <span id="v1">0</span>
+  </div>
+
+  <div class="slider-group">
+    <label>Planet Size</label>
+    <input type="range" min="-3" max="3" step="0.1" id="planet_size_z">
+    <span id="v2">0</span>
+  </div>
+
+  <div class="slider-group">
+    <label>Star Temperature</label>
+    <input type="range" min="-3" max="3" step="0.1" id="star_temp_z">
+    <span id="v3">0</span>
+  </div>
+
+  <div class="slider-group">
+    <label>Star Energy</label>
+    <input type="range" min="-3" max="3" step="0.1" id="star_energy_z">
+    <span id="v4">0</span>
+  </div>
+
+  <button class="btn primary" onclick="predict()">🔭 Predict Habitability</button>
+
+  <div id="result" class="result-box"></div>
+
+</section>
+
+<!-- MAIN JS (THIS WAS ALSO MISSING) -->
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
